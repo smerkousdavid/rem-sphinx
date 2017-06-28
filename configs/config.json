@@ -1,0 +1,33 @@
+{
+	"language_codes": {
+		"0": "English",
+		"1": "German",
+		"2": "French",
+		"3": "Russian"
+	},
+
+	"stt": {
+		"model_dir": "(!CWD!)/model",
+		"data_dir": "(!CWD!)/data",
+		"audio_prefix": "data:audio/wav;base64,",
+		"playback": false, 
+		"hmm": {
+			"0": "en-us/en-us",
+			"1": "de/de",
+			"2": "fr/fr",
+			"3": "ru/ru"
+		},
+		"lm": {
+			"0": "en-us/en-us.lm.bin",
+			"1": "fr/fr.lm.bin",
+			"2": "de/cmusphinx-voxforge-de.lm.bin",
+			"3": "ru/ru.lm"
+		},
+		"dict": {
+			"0": "en-us/cmudict-en-us.dict",
+			"1": "fr/fr.dict",
+			"2": "de/cmusphinx-voxforge-de.dic",
+			"3": "ru/ru.dic"
+		}
+	}
+}
