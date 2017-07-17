@@ -13,7 +13,7 @@ from logger import logger
 from configs import LanguageModel, Configs
 from pyaudio import PyAudio, paInt16
 from base64 import b64decode
-from multiprocessing import Process, Pipe, Lock, current_process
+from multiprocessing import Process, Pipe, Lock, Event, current_process
 from threading import Thread
 from json import loads, dumps
 from time import sleep
@@ -53,6 +53,7 @@ class STT(object):
         self._loaded_model = False
         self._p_out, self._p_in = Pipe() # Create a new multiprocessing Pipe pair
         self._lock = Lock() # Create a mutex lock between the parent process and the subprocess
+        self._shutdown_event = Event() # Create an event to handle the STT shutdown
         self._process = Process(target=self.__worker, args=((self._p_out, self._p_in), log, self._lock)) # Create the subprocess fork
         self._process.start() # Start the subprocess fork
 
@@ -74,6 +75,7 @@ class STT(object):
         audio_processor = AudioProcessor() # Create a new audio processing object
         config = Decoder.default_config() # Create a new pocketsphinx decoder with the default configuration, which is English
         decoder = None
+        shutdown_flags = { "shutdown": False }
 
         def send_json(pipe, to_send):
             """Internal worker method to send a json through the parent socket
@@ -243,8 +245,33 @@ class STT(object):
                 l_log.info("Speech detected: %s" % str(hypothesis_results))
                 send_json(pipe, hypothesis_results)
 
+        def shutdown_thread(self, decoder, l_log):
+            """Worker method to handle the checking of a shutdown call
+
+            Note:
+                To reduce overhead, this thread will only be called every 100 milliseconds
+            """
+            while not shutdown_flags["shutdown"]:
+                try:
+                    if self._shutdown_event.is_set():
+                        l_log.info("Shutting down worker thread!")
+                        shutdown_flags["shutdown"] = True # Exit the main loop
+                        if decoder is not None:
+                            decoder.end_utt()
+                        else:
+                            l_log.warning("The decoder object is already None!")
+
+                        break
+                    sleep(0.1)
+                except Exception as err:
+                    l_log.error("Failed shutting down worker thread! (err: %s)" % str(err))
+
+        shutdown_t = Thread(target=shutdown_thread, args=(self, decoder, l_log,))
+        shutdown_t.setDaemon(True)
+        shutdown_t.start()
+
         p_out, p_in = pipe
-        while True:
+        while not shutdown_flags["shutdown"]:
             try:
                 try:
                     command = self.__get_buffered(p_out) # Wait for a command from the parent process
@@ -412,22 +439,26 @@ class STT(object):
         """
         self.__send_to_worker("stop_audio", {})
 
-    def is_ready(self, callback = None):
-        """Method to return the current state of the language model loading
-
-        Arguments:
-            callback (:obj: method) (optional): The callback method to call when the STT has loaded its language model
+    def shutdown(self):
+        """Method to shutdown and cleanup the STT engine object
 
         Note:
-            Call this before doing any processing
-
-        Returns: (bool)
-            True if the model is ready False otherwise
+            The shutdown will not happen immediately, and this function might lag the entire
+            process out for a few hundred milliseconds
         """
-        if callback is not None:
-            self._is_ready = callback
-        return self._loaded_model
+        self._shutdown_event.set() # Set the multiprocessing shutdown_event to set
 
+        def terminate_soon(self):
+            try:
+                sleep(1) # Wait a second for the subprocess to clean itself
+                self._process.terminate() # Destroy the entire subprocess
+            except Exception as err:
+                log.error("Failed terminating worker subprocess! (err: %s)" % str(err)) 
+
+        # Wait for the subprocess to retrieve the shutdown event and then destroy the subprocess
+        terminate_soon_t = Thread(target=terminate_soon, args=(self,))
+        terminate_soon_t.setDaemon(True)
+        terminate_soon_t.start()
 
 class AudioProcessor(object):
     """General audio processing utilities class

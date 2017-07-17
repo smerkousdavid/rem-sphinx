@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""CloudyBoss speech to text processing configuration files
+"""RemSphinx speech to text processing configuration files
 
 This module is designed to load the local language configuration files
 for the dynamic use of languages on the server. Please look at the config.json file
@@ -119,7 +119,7 @@ class LanguageModel(object):
 
         # Check to see if the hmm file exists
         if not exists(hmm):
-            raise SystemError("hmm doesn't exist! %s" % str(hmm))
+            raise SystemError("hmm doesn't exist!")
         self._model_hmm = hmm
 
     @property
@@ -138,7 +138,7 @@ class LanguageModel(object):
 
         # Check to see if the lm file exists
         if not exists(lm):
-            raise SystemError("lm doesn't exist! %s " % str(lm))
+            raise SystemError("lm doesn't exist!")
         self._model_lm = lm
 
     @property
@@ -157,7 +157,7 @@ class LanguageModel(object):
 
         # Check to see if the ngrams file exists
         if not exists(ngrams):
-            raise SystemError("dict doesn't exist! %s" % str(ngrams))
+            raise SystemError("dict doesn't exist!")
         self._model_dict = ngrams
 
 class Configs(object):
@@ -217,6 +217,7 @@ class Configs(object):
 
     @staticmethod
     def get_available_languages():
+        global CONFIGS
         """Method to return all language codes from the configuration file
 
         Returns: (:obj: dict - string pairs)
@@ -249,6 +250,41 @@ class Configs(object):
             return None
 
     @staticmethod
+    def get_server():
+        global CONFIGS
+        """Method to return all of the server configurations from the configuration file
+
+        Returns: (:obj: dict - server configuration)
+            The server configuration dictionary
+        """
+
+        try:
+            return CONFIGS["server"]
+        except Exception as err:
+            log.error("Failed getting server configuration dictionary! (err: %s)" % str(err))
+            return None
+
+    def get_ssl(self):
+        """Method to return all of the server ssl configurations from the configuration file
+
+        Returns: (:obj: dict - server configuration)
+            The server ssl configuration dictionary
+        """
+
+        try:
+            server_configs = Configs.get_server()
+            if server_configs is None:
+                raise TypeError("Server configurations are not available!") 
+            ssl_configs = server_configs["ssl"]
+            ssl_configs["certfile"] = self.parse_config_path(ssl_configs["certfile"])
+            ssl_configs["keyfile"] = self.parse_config_path(ssl_configs["keyfile"])
+            return ssl_configs
+        except Exception as err:
+            log.error("Failed getting server configuration dictionary! (err: %s)" % str(err))
+            return None
+
+
+    @staticmethod
     def get_stt():
         global CONFIGS
         """Public method to get the current stt configurations
@@ -278,7 +314,7 @@ class Configs(object):
             m_dict = join(model_data, stt["dict"][n_id])
             return LanguageModel(name, m_hmm, m_lm, m_dict) # Create the new language model object
         except Exception as err:
-            log.error("Failed loading language model! (id: %d) (err: %s)" % (int(l_id), str(err)))
+            log.error("Failed loading language model! (id: %d) (err: %s)" % (l_id, str(err)))
             return None
 
     @staticmethod
@@ -364,8 +400,3 @@ class Configs(object):
         except Exception as err:
             log.error("Failed parsing config path! (path: %s) (err: %s)" % (path_parse, str(err)))
             return None
-
-#log.debug("YES")
-#c = Configs()
-#while True:
-#    pass

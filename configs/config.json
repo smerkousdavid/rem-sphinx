@@ -29,5 +29,14 @@
 			"2": "de/cmusphinx-voxforge-de.dic",
 			"3": "ru/ru.dic"
 		}
+	},
+
+	"server": {
+		"port": 8000,
+		"ssl": {
+			"use": false,
+			"certfile": "(!CWD!)/ssl/server.cert",
+			"keyfile": "(!CWD!)/ssl/server.key"
+		}
 	}
 }

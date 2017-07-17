@@ -177,6 +177,6 @@ self.onmessage = function(event) {
 		case "start_speech": startSpeech();			break;
 		case "chunk": chunk(data.buffer);			break;
 		case "end_speech": endSpeech();				break;
-		case "cancel": cleanup();					break;
+		case "shutdown": cleanup();					break;
 	}
 }
