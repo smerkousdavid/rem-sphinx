@@ -1,0 +1,53 @@
+.subject-text {
+	float: left;
+	padding-right: 20px;
+	font: 20px arial, sans-serif;
+}
+
+.slider {
+	width: 200%;
+	padding-left: 20px;
+}
+
+.spoken-container {
+	width: 700px;
+	height: 400px;
+	margin: 30px;
+	padding: 30px;
+	border-style: solid;
+	border-width: 0px;
+	border-radius: 20px;
+	background-color: #F5F5F5;
+	display:table;
+}
+
+.spoken-text {
+	margin: 5px;
+	padding: 5px;
+	position: center;
+	font: 20px arial, sans-serif;
+	display:inline-block;
+}
+
+.dark-background {
+	width: 100%;
+	height: 100%;
+	margin: 100px 0px 0px 0px;
+	position: absolute;
+	top: 1;
+	left: 1;
+	background-color: #212121;
+	background-size: auto 100%;
+}
+
+.clear-button {
+	width: 400px;
+	height: 100px;
+	margin: 0px 0px 0px 175px;
+
+}
+
+ul {
+	list-style: none;
+	padding-left: 0px;
+}

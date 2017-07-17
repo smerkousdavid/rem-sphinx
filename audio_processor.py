@@ -84,8 +84,9 @@ class STT(object):
 
             """
             try:
-                self.__send_buffered(pipe, to_send)
-                #pipe.send(to_send) # Dump the dictionary into a json stirng then send that through the websocket
+                ret = self.__send_buffered(pipe, to_send) # Send the message passed by argument back to the parent process
+                if not ret[0]:
+                    l_log.error("Failed to send buffered message to the parent process! (err: %s)" % ret[1])
             except Exception as err:
                 l_log.error("Failed to send json! (err: %s)" % str(err))
 
@@ -131,6 +132,33 @@ class STT(object):
             
             return decoder # Return the new decoder
 
+        def start_audio(pipe, decoder, args):
+            """Internal worker method to start the audio processing chunk sequence
+
+            Note:
+                This must be called before the process_audio method or the STT engine will not process the audio chunks
+
+            Arguments:
+                pipe (:obj: socket): The response pipe to send to the parent process
+                decoder (Decoder): The pocketsphinx decoder to control the STT engine
+                args (dict): All of the available arguments passed by the parent process
+            """
+
+            if decoder is None:
+                l_log.error("Language model is not loaded")
+                send_error(pipe, "Language model not loaded!")
+                send_json(pipe, {"decoder": False})
+                return
+           
+            l_log.info("Starting the audio processing...")
+
+            decoder.start_utt() # Start the pocketsphinx listener
+            
+            hypothesis = decoder.seg() # Get pocketshpinx's hypothesis
+            print("GUESS: %s" % str([seg.word for seg in hypothesis]))
+
+            send_json(pipe, {"decoder": True})
+
         def process_audio(pipe, decoder, args):
             """Internal worker method to process an audio chunk
 
@@ -139,11 +167,13 @@ class STT(object):
 
             Arguments:
                 pipe (:obj: socket): The response pipe to send to the parent process
+                decoder (Decoder): The pocketsphinx decoder to control the STT engine
                 args (dict): All of the available arguments passed by the parent process
             """
             if decoder is None:
                 l_log.error("Language model is not loaded")
                 send_error(pipe, "Language model not loaded!")
+                return
 
             l_log.info("Processing audio chunk!")
 
@@ -152,8 +182,45 @@ class STT(object):
            
             l_log.info("Recognizing speech...")
 
-            decoder.start_utt() # Start the pocketsphinx listener
             decoder.process_raw(processed_wav, False, False) # Process the audio chunk through the STT engine
+
+            hypothesis = decoder.hyp() # Get pocketshpinx's hypothesis
+
+            # Send back the results of the decoding
+            if hypothesis is None:
+                l_log.info("Silence detected")
+                send_json(pipe, {"partial_silence": True, "partial_hypothesis": None})
+            else:
+                hypothesis_results = {
+                    "partial_silence": False if len(hypothesis.hypstr) > 0 else True,
+                    "partial_hypothesis": hypothesis.hypstr
+                }
+
+                l_log.info("Partial speech detected: %s" % str(hypothesis_results))
+                send_json(pipe, hypothesis_results)
+            
+            l_log.info("Done decoding speech from audio chunk!")
+
+        def stop_audio(pipe, decoder, args):
+            """Internal worker method to stop the audio processing chunk sequence
+
+            Note:
+                This must be called after the process_audio method or the STT engine will continue to listen for audio chunks
+
+            Arguments:
+                pipe (:obj: socket): The response pipe to send to the parent process
+                decoder (Decoder): The pocketsphinx decoder to control the STT engine
+                args (dict): All of the available arguments passed by the parent process
+            """
+
+            if decoder is None:
+                l_log.error("Language model is not loaded")
+                send_error(pipe, "Language model not loaded!")
+                send_json({"decoder": False})
+                return
+
+            l_log.info("Stopping the audio processing...")
+
             decoder.end_utt() # Stop the pocketsphinx listener
 
             l_log.info("Done recognizing speech!")
@@ -164,7 +231,7 @@ class STT(object):
             # Send back the results of the decoding
             if hypothesis is None:
                 l_log.info("Silence detected")
-                send_json(pipe, {"silence": True})
+                send_json(pipe, {"silence": True, "hypothesis": None})
             else:
                 hypothesis_results = {
                     "silence": False if len(hypothesis.hypstr) > 0 else True,
@@ -183,8 +250,12 @@ class STT(object):
                     command = self.__get_buffered(p_out) # Wait for a command from the parent process
                     if "set_model" in command["exec"]: # Check to see if our command is to 
                         decoder = load_model(p_out, config, command["args"])
+                    elif "start_audio" in command["exec"]:
+                        start_audio(p_out, decoder, command["args"])
                     elif "process_audio" in command["exec"]:
                         process_audio(p_out, decoder, command["args"])
+                    elif "stop_audio" in command["exec"]:
+                        stop_audio(p_out, decoder, command["args"])
                     else:
                         l_log.error("Invalid command %s" % str(command))
                         send_error(socket, "Invalid command!")
@@ -323,6 +394,24 @@ class STT(object):
         """
         self.__send_to_worker("process_audio", audio_chunk)
 
+    def start_audio_proc(self):
+        """Method to start the audio processing
+
+        Note:
+            This must be called before the process_audio_chunk method
+
+        """
+        self.__send_to_worker("start_audio", {})
+
+    def stop_audio_proc(self):
+        """Method to stop the audio processing
+
+        Note:
+            This must be called after the series of process_audio_chunk method calls
+
+        """
+        self.__send_to_worker("stop_audio", {})
+
     def is_ready(self, callback = None):
         """Method to return the current state of the language model loading
 
@@ -355,7 +444,7 @@ class AudioProcessor(object):
         self._io = None
 
     def process_chunk(self, audio_chunk):
-        """Public method to process an audio chunk received by the server
+        """P0ublic method to process an audio chunk received by the server
 
         Note:
             The current expectation is that the audio chunk is wrapped in base64

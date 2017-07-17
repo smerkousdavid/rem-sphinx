@@ -22,7 +22,6 @@ sdist/
 var/
 wheels/
 ssl/
-templates/
 model/
 data/
 *.egg-info/

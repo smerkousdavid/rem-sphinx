@@ -128,6 +128,16 @@ class ClientHandler(WebSocketHandler):
         log.info("Client sent audio chunk!")
         self._stt.process_audio_chunk(audio_chunk)
 
+    def __handle_start_audio(self):
+        log.info("Client started to speak!")
+        self._stt.start_audio_proc()
+        self._state = 20
+
+    def __handle_stop_audio(self):
+        log.info("Client stopped speaking!")
+        self._stt.stop_audio_proc()
+        self._state = 10
+
     """
     def __handle_wav_packet(self, audio_packet):
         wav_file = wave.open(io.BytesIO(audio_packet), 'r')
@@ -194,12 +204,20 @@ class ClientHandler(WebSocketHandler):
             self.__send_error(err)
             return
 
-        if "model" in j_obj or self._state == 0:
+        if "model" in j_obj:
             self.__handle_model(j_obj)
-        elif "audio" in j_obj and self._state == 10:
+        elif "start_speech" in j_obj and self._state == 10:
+            self.__handle_start_audio()
+        elif "start_speech" in j_obj and self._state < 10:
+            self.__send_error("The language model is not currently set!")
+        elif "audio" in j_obj and self._state == 20:
             self.__handle_audio_chunk(j_obj)
-        elif "audio" in j_obj and self._state == 0:
-            self.__send_error("The language model is not currently set!");
+        elif "audio" in j_obj and self._state < 20:
+            self.__send_error("The language model is not currentl set, and/or the start speech command hasn't been sent!")
+        elif "end_speech" in j_obj and self._state == 20:
+            self.__handle_stop_audio()
+        elif "end_speech" in j_obj and self._state != 20:
+            self.__send_error("Unecessary end speech has been called!")
 
     def __set_model(self, model):
         log.info("Setting model to %s" % model)

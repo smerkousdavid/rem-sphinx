@@ -119,7 +119,7 @@ class LanguageModel(object):
 
         # Check to see if the hmm file exists
         if not exists(hmm):
-            raise SystemError("hmm doesn't exist!")
+            raise SystemError("hmm doesn't exist! %s" % str(hmm))
         self._model_hmm = hmm
 
     @property
@@ -138,7 +138,7 @@ class LanguageModel(object):
 
         # Check to see if the lm file exists
         if not exists(lm):
-            raise SystemError("lm doesn't exist!")
+            raise SystemError("lm doesn't exist! %s " % str(lm))
         self._model_lm = lm
 
     @property
@@ -157,7 +157,7 @@ class LanguageModel(object):
 
         # Check to see if the ngrams file exists
         if not exists(ngrams):
-            raise SystemError("dict doesn't exist!")
+            raise SystemError("dict doesn't exist! %s" % str(ngrams))
         self._model_dict = ngrams
 
 class Configs(object):
@@ -278,7 +278,7 @@ class Configs(object):
             m_dict = join(model_data, stt["dict"][n_id])
             return LanguageModel(name, m_hmm, m_lm, m_dict) # Create the new language model object
         except Exception as err:
-            log.error("Failed loading language model! (id: %d) (err: %s)" % (l_id, str(err)))
+            log.error("Failed loading language model! (id: %d) (err: %s)" % (int(l_id), str(err)))
             return None
 
     @staticmethod
