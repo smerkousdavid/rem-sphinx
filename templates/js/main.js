@@ -30,8 +30,11 @@ var audio_recorder = null,
 	ws_state = 0,
 	volume_gain = 0,
 	speaking_gain = 0,
+	keyphrase_score = 0,
 	frequency_bin_count = 0,
-	remSphinx = null;
+	remSphinx = null,
+	modelId = null,
+	accent = null;
 
 $(document).ready(function() {
 	audio_mixer = a_cx.createGain();
@@ -161,14 +164,29 @@ $(document).ready(function() {
 		}
 	});
 
+	$("#keyphrase-score").slider().on("slideStop", function(ev) {
+		keyphrase_score = $("#keyphrase-score").data("slider").getValue();
+		if(remSphinx != null) {
+			remSphinx.setMinKeyphraseScore(keyphrase_score);
+		}
+	});
+
 	$("#clear-text").on("click", function(ev) {
 		clearSpokenText();
 		console.log("Cleared spoken text!");
 	});
 
+	$("#keyphrases").on("click", function(ev) {
+		var checked_state = $("#keyphrases").prop("checked");
+		if(remSphinx != null && remSphinx.isReady()) {
+			remSphinx.setKeyphrases(checked_state);
+		}
+	});
+
 	//Get default values from the sliders
 	volume_gain = $("#volume").data("slider").getValue();
 	speaking_gain = $("#volume-speaking").data("slider").getValue();
+	keyphrase_score = $("#keyphrase-score").data("slider").getValue();
 
 	$(".dropdown-menu li a").click(function() {
 		var language = $(this).text();
@@ -180,16 +198,23 @@ $(document).ready(function() {
 		setSubInfo("Configuring server for " + language + "...");
 
 		var models = {
-			"English": "0",
-			"German": "1",
-			"French": "2",
-			"Russian": "3"
+			"English": 0,
+			"English-Indian": 0,
+			"German": 1,
+			"French": 2,
+			"Russian": 3
 		}
 
-		var model_id = models[language];
+		var accents = {
+			"English": "us",
+			"English-Indian": "indian"
+		}
+
+		modelId = models[language];
+		accent = accents[language];
 
 		if(remSphinx != null) {
-			remSphinx.setLanguageModel(model_id);
+			remSphinx.setLanguageModel(modelId, accent);
 		}
 
 		/*ws.send(JSON.stringify({
@@ -197,7 +222,6 @@ $(document).ready(function() {
 		}));*/
 
 	});
-
 });
 
 function setInfo(set_text) {
@@ -295,21 +319,56 @@ function recordAudio(stream) {
 		setSubInfo("Pleae wait while the server is processing the speech data");
 	}
 
+	remSphinx.onModelLoaded = function(success) {
+		remSphinx.setKeyphrases($("#keyphrases").prop("checked")); //Process keyphrases (This must be called after remSphinx is connected to the server
+		remSphinx.setMinKeyphraseScore(keyphrase_score);
+
+		console.log("The language model has been loaded!");
+	}
+
 	remSphinx.onWaiting = function() {
 		setInfo("Waiting...");
 		setSubInfo("Adjust the gain settings if RemSphinx can't hear you");
 	}
 
-	remSphinx.onHypothesis = function(hypothesis) {
+	remSphinx.onHypothesis = function(hypothesis, keyphrases) {
 		setInfo("Waiting...");
 		setSubInfo("Adjust the gain settings if RemSphinx can't hear you");
-		console.log("Recieved hypothesis: " + hypothesis);
-		appendSpokenText(hypothesis);
+		if(keyphrases) {
+			appendSpokenText("\nKeyphrases:\n");
+			console.log("Keyphrases: ");
+			for(var ind = 0; ind < hypothesis.length; ind++) {
+					phrase_pair = hypothesis[ind];
+				if(phrase_pair.score > 2) {
+					console.log(ind + ". " + phrase_pair.keyphrase);
+					appendSpokenText(ind + ". " + phrase_pair.keyphrase); 
+				}
+			}
+		} else {
+			console.log("Recieved hypothesis: " + hypothesis);
+			appendSpokenText(hypothesis);
+		}
 	}
 
-	remSphinx.onPartialHypothesis = function(partial_hypothesis) {
+	remSphinx.onPartialHypothesis = function(partial_hypothesis, keyphrases) {
 		setInfo("Listening...");
-		setSubInfo(partial_hypothesis);
+		if(keyphrases) {
+			console.log("Parital Keyphrases: ");
+			var compiled = "";
+			for(var ind = 0; ind < partial_hypothesis.length; ind++) {
+				phrase_pair = partial_hypothesis[ind];
+				console.log(phrase_pair);
+				if(phrase_pair.score > 2) {
+					console.log(ind + ". " + phrase_pair.keyphrase);
+					compiled += phrase_pair.keyphrase + ", "; 
+				}
+			}
+			compiled = compiled.substr(0, compiled.length - 2);
+			setSubInfo(compiled);
+		} else {
+			console.log("Recieved partial hypothesis: " + partial_hypothesis);
+			setSubInfo(partial_hypothesis);
+		}
 	}
 
 	remSphinx.onNoCatch = function(silence) {
@@ -319,6 +378,7 @@ function recordAudio(stream) {
 
 
 	remSphinx.start(audio_mixer, stream);
+
 	
 	/*audio_recorder = new WebAudioRecorder(audio_mixer, {
 		workerDir: 'js/',

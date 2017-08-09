@@ -29,8 +29,6 @@ var CONFIGS = {
 		bufferSize: undefined, //Use the browsers default buffer size
 		mimeType: "audio/wav", //Web blob mime type
 		address: "ws://localhost:8000/ws", //The server websocket location 
-		reconnectInterval: 100, //Attempt to reconnect to the server ever 100 millis
-		maxReconnectInterval: 500 //The maximum amount of interval time to reconnect to the server
 	}
 }
 
@@ -97,6 +95,7 @@ extend(RemSphinx.prototype, {
 		this.audioRunLevel = [];
 		this.buffer = [];
 		this.listening = false;
+		this.minKeyphraseScore = 0;
 
 		//Create a static offset of the object to not confuse the ambiguity of the interpreter
 		var _this = this;
@@ -110,7 +109,10 @@ extend(RemSphinx.prototype, {
 			_this.audioRunLevel.push(arr_average); //Push the current audio average to the global array	
 
 			//Check to see if we can start to listen for speech
-			//console.log("AVERAGE: " + arr_average);
+			$("#volume-level").css("width", ((100/100) * arr_average) + "%").attr("aria-valuenow", arr_average);
+			$("#volume-level").text(Math.round(arr_average));
+			
+			console.log("AVERAGE: " + arr_average);
 			if(arr_average > _this.speakingGain && _this.isReady() && !_this.isListening()) {
 				_this.listening = true;
 				_this.worker.postMessage({ command: "start_speech" });
@@ -148,8 +150,8 @@ extend(RemSphinx.prototype, {
 		});
 	},
 
-	setLanguageModel: function(newModel) {
-		this.worker.postMessage({ command: "model", model: newModel});
+	setLanguageModel: function(newModel, newAccent) {
+		this.worker.postMessage({ command: "model", model: newModel, accent: newAccent});
 	},
 
 	setVolumeGain: function(gain) {
@@ -162,6 +164,32 @@ extend(RemSphinx.prototype, {
 
 	setSpeakingGain: function(gain) {
 		this.speakingGain = gain;
+	},
+
+	setKeyphrases: function(setKeyphrases) {
+		this.worker.postMessage({
+			command: "keyphrases",
+			keyphrases: setKeyphrases
+		});
+	},
+	
+	setMinKeyphraseScore: function(setMinKephraseScore) {
+		this.minKeyphraseScore = setMinKephraseScore;
+	},
+
+	__processKeyphrases: function(hypothesis) {
+		if(hypothesis == undefined) {
+			console.log("The hypothesis is undefined");
+			return;
+		}
+		var newPhrases = [];
+		for(var ind = 0; ind < hypothesis.length; ind++) {
+			var phrase_pair = hypothesis[ind];
+			if(phrase_pair[0] >= this.setMinKeyphraseScore) {
+				newPhrases.push(phrase_pair);
+			}
+		}
+		return newPhrases;
 	},
 
 	arrayAverage: function(array) {
@@ -199,10 +227,12 @@ extend(RemSphinx.prototype, {
 						_this.ready = true;
 						break;
 					case "hypothesis":
-						_this.onHypothesis(data.hyp);
+						if(data.keyphrases) data.hyp = _this.__processKeyphrases(data.hyp);
+						_this.onHypothesis(data.hyp, data.keyphrases);
 						break;
 					case "partial_hypothesis":
-						_this.onPartialHypothesis(data.partial_hyp);
+						if(data.keyphrases) data.hyp = _this.__processKeyphrases(data.hyp);
+						_this.onPartialHypothesis(data.partial_hyp, data.keyphrases);
 						break;
 					case "nocatch":
 						_this.onNoCatch(data.silence);
@@ -230,8 +260,8 @@ extend(RemSphinx.prototype, {
 	onModelLoaded: function(success) { console.log("LanguageModel loading " + ((success) ? "success!" : "failure!")); },
 	onStartSpeech: function() { console.log("Starting to listen!"); },
 	onEndSpeech: function() { console.log("Listening stopped!"); },
-	onHypothesis: function(hypothesis) {},
-	onPartialHypothesis: function(partial_hypothesis) { console.log("Partial hypothesis: " + partial_hypothesis); },
+	onHypothesis: function(hypothesis, keyphrases) { console.log("Hypothesis: " + hypothesis) },
+	onPartialHypothesis: function(partial_hypothesis, keyphrases) { console.log("Partial hypothesis: " + partial_hypothesis); },
 	onNoCatch: function(silence) {},
 	onWaiting: function() {}
 });

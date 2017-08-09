@@ -23,10 +23,11 @@ function init(data) {
 	options = data.options;
 
 	ws = new RobustWebSocket(data.options.address, null, {
-		debug: true, 
-		automaticOpen: false,
-		reconnectInterval: data.config.reconnectInterval,
-		maxReconnectInterval: data.config.maxReconnectInterval
+		shouldReconnect: function(event, ws) {
+			return true;
+		},
+		
+		automaticOpen: false
 	});
 
 	ws.onmessage = function(event) {
@@ -35,6 +36,12 @@ function init(data) {
 		if(response.hasOwnProperty("error")) {
 			error(response.error, 1);
 			return;
+		}
+
+		//By default keyphrases are turned off (double check to see if the flag has been set)
+		var keyphrases = false;
+		if(response.hasOwnProperty("keyphrases")) {
+			keyphrases = response.keyphrases;
 		}
 
 		switch(wsState) {
@@ -57,17 +64,24 @@ function init(data) {
 						command: "loaded",
 						success: false
 					});
-
-					ws.refresh(); //Restart the connection with the server
+					
+					//Restart the connection with the server
+					ws.close();
+					ws.open();
 				}
 				break;
 			case 10:
 				if(response.hasOwnProperty("hypothesis")) {
 					if(!response.silence) {
-						var hypothesis = (response.hypothesis == undefined) ? "(inaudible)" : (response.hypothesis + ". ");
-					
+						if(keyphrases) {
+							var hypothesis = (response.hypothesis == undefined) ? [{}] : (response.hypothesis);
+						} else {
+							var hypothesis = (response.hypothesis == undefined) ? "(inaudible)" : (response.hypothesis + ". ");
+						}
+
 						self.postMessage({
 							command: "hypothesis",
+							keyphrases: keyphrases,
 							hyp: hypothesis
 						});
 					} else {
@@ -80,6 +94,7 @@ function init(data) {
 						if(response.partial_hypothesis != undefined) {
 							self.postMessage({
 								command: "partial_hypothesis",
+								keyphrases: keyphrases,
 								partial_hyp: response.partial_hypothesis
 							});
 						}
@@ -108,10 +123,11 @@ function init(data) {
 	ws.open(); //Start the websocket client
 }
 
-function setLanguageModel(modelId) {
+function setLanguageModel(modelData) {
 	wsState = 0; //Set the websocket state to listen for a model set success
 	ws.send(JSON.stringify({
-		model: modelId
+		model: modelData.model,
+		accent: modelData.accent
 	}));
 }
 
@@ -123,9 +139,17 @@ function start(bufferSize) {
 	encoder = new WavAudioEncoder(sampleRate, numChannels);
 }
 
+//Tell the server to start listening
 function startSpeech() {
 	ws.send(JSON.stringify({
 		start_speech: true
+	}));
+}
+
+//Tell the server to either stop or start processing keyphrases
+function setKeyphrases(keyphrases) {
+	ws.send(JSON.stringify({
+		set_keyphrases: keyphrases
 	}));
 }
 
@@ -154,6 +178,7 @@ function finishChunk() {
 	encoder = new WavAudioEncoder(sampleRate, numChannels);
 }
 
+//Tell the server to stop listening
 function endSpeech() {
 	ws.send(JSON.stringify({
 		end_speech: true
@@ -170,13 +195,14 @@ function cleanup() {
 self.onmessage = function(event) {
 	var data = event.data;
 	switch(data.command) {
-		case "init": init(data);					break;
-		case "options": setOptions(data.options);	break;
-		case "model": setLanguageModel(data.model);	break;
-		case "start": start(data.bufferSize);		break;
-		case "start_speech": startSpeech();			break;
-		case "chunk": chunk(data.buffer);			break;
-		case "end_speech": endSpeech();				break;
-		case "shutdown": cleanup();					break;
+		case "init": init(data);							break;
+		case "options": setOptions(data.options);			break;
+		case "model": setLanguageModel(data);				break;
+		case "start": start(data.bufferSize);				break;
+		case "start_speech": startSpeech();					break;
+		case "keyphrases": setKeyphrases(data.keyphrases);	break;
+		case "chunk": chunk(data.buffer);					break;
+		case "end_speech": endSpeech();						break;
+		case "shutdown": cleanup();							break;
 	}
 }

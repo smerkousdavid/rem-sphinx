@@ -1,0 +1,8 @@
+nltk
+tornado
+gevent
+pocketsphinx
+pyaudio
+wave
+jsonpickle
+pyinotify

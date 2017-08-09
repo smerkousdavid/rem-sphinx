@@ -9,6 +9,7 @@
 		
 		<link rel="stylesheet" type="text/css" href="css/bootstrap.min.css">
 		<link rel="stylesheet" type="text/css" href="css/bootstrap-theme.min.css">
+		<link rel="stylesheet" type="text/css" href="css/font-awesome.min.css">
 		<link rel="stylesheet" type="text/css" href="css/slider.css">
 		<link rel="stylesheet" type="text/css" href="css/main.css">
 
@@ -37,6 +38,7 @@
 				</button>
 				<ul class="dropdown-menu" aria-labelledby="languageDropDown">
 					<li><a href="#">English</a></li>
+					<li><a href="#">English-Indian</a></li>
 					<li><a href="#">German</a></li>
 					<li><a href="#">French</a></li>
 					<li><a href="#">Russian</a></li>
@@ -50,13 +52,41 @@
 			<li>
 				<div>
 					<p class="subject-text">Mic Volume: </p>
-					<input id="volume" class="slider" data-slider-id="volumeSlider" type="text" data-slider-min="0" data-slider-max="100" data-slider-step="1" data-slider-value="70"/>
+					<input id="volume" class="slider" data-slider-id="volumeSlider" type="text" data-slider-min="0" data-slider-max="100" data-slider-step="1" data-slider-value="75"/>
 				</div><br>
 			</li>
 			<li>
 				<div>
 					<p class="subject-text">Min Volume: </p>
-					<input id="volume-speaking" class="slider" data-slider-id="volumeSlider" type="text" data-slider-min="0" data-slider-max="150" data-slider-step="1" data-slider-value="110"/>
+					<input id="volume-speaking" class="slider" data-slider-id="volumeSlider" type="text" data-slider-min="0" data-slider-max="150" data-slider-step="1" data-slider-value="55"/>
+				</div><br>
+			</li>
+			<li>
+				<div>
+					<p class="subject-text">Mic Gain: </p>
+					<div class="progress">
+						<div class="progress-bar progress-bar-info" id="volume-level" 
+							role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="150">
+							0
+						</div>
+					</div>
+				</div>
+			</li>
+			<li>
+				<div>
+					<p class="subject-text">Kephrases: </p>
+					<div class="checkbox">
+						<label style="font-size: 1.5em">
+							<input type="checkbox" id="keyphrases" value="" checked>
+							<span class="cr"><i class="cr-icon fa fa-check"></i></span>
+						</label>
+					</div>
+				</div><br>
+			</li>
+			<li>
+				<div>
+					<p class="subject-text">Min Keyphrase score: </p>
+					<input id="keyphrase-score" class="slider" data-slider-id="volumeSlider" type="text" data-slider-min="0" data-slider-max="40" data-slider-step="1" data-slider-value="0"/>
 				</div>
 			</li>
 		</ul>

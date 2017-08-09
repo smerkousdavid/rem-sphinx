@@ -1,3 +1,12 @@
+# -*- coding: utf-8 -*-
+"""RemSphinx speech to text logger
+
+This module is designed to just handle logging. There's nothing more to it
+Just printing and logging to files
+
+Developed By: David Smerkous
+"""
+
 from logging import getLogger, INFO, Formatter, FileHandler, StreamHandler
 from os.path import dirname, realpath, isdir, exists
 from os import makedirs
@@ -5,7 +14,7 @@ from time import strftime
 from sys import stdout
 
 # Define logging characteristics
-LOGGER_NAME = "cB-Audio"
+LOGGER_NAME = "RemSphinx"
 LOGGER_LEVEL = INFO
 
 LOGGER_FORMAT = Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")

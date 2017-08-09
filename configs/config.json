@@ -1,33 +1,67 @@
 {
-	"language_codes": {
-		"0": "English",
-		"1": "German",
-		"2": "French",
-		"3": "Russian"
-	},
+	"language_codes": [
+		{
+			"id": 0, 
+			"name": "English",
+			"accents": [
+				"us",
+				"indian"	
+			]
+		},
+		{
+			"id": 1,
+			"name": "German",
+			"accents": {
+
+			}
+		},
+		{
+			"id": 2,
+			"name": "French",
+			"accents": {
+
+			}
+		},
+		{
+			"id": 3,
+			"name": "Russian",
+			"accents": {
+
+			}
+		}
+	],
 
 	"stt": {
-		"model_dir": "(!CWD!)/model",
-		"data_dir": "(!CWD!)/data",
+		"model_dir": "(!cwd!)/model",
+		"data_dir": "(!cwd!)/data",
 		"audio_prefix": "data:audio/wav;base64,",
 		"playback": false, 
 		"hmm": {
-			"0": "en-us/en-us",
-			"1": "de/de",
-			"2": "fr/fr",
-			"3": "ru/ru"
+			"0": "english/(!accent!)/en",
+			"1": "german/(!accent!)/de",
+			"2": "french/(!accent!)/fr",
+			"3": "russian/(!accent!)/ru"
 		},
 		"lm": {
-			"0": "en-us/en-us.lm.bin",
-			"1": "fr/fr.lm.bin",
-			"2": "de/cmusphinx-voxforge-de.lm.bin",
-			"3": "ru/ru.lm"
+			"0": "english/(!accent!)/en.lm.bin",
+			"1": "german/(!accent!)/de.lm.bin",
+			"2": "french/(!accent!)/fr.lm.bin",
+			"3": "russian/(!accent!)/ru.lm.bin"
 		},
 		"dict": {
-			"0": "en-us/cmudict-en-us.dict",
-			"1": "fr/fr.dict",
-			"2": "de/cmusphinx-voxforge-de.dic",
-			"3": "ru/ru.dic"
+			"0": "english/(!accent!)/en.dict",
+			"1": "german/(!accent!)/de.dict",
+			"2": "french/(!accent!)/fr.dict",
+			"3": "russian/(!accent!)/ru.dict"
+		}
+	},
+
+	"nltk": {
+		"stopwords": {
+			"0": "english",
+			"1": "german",
+			"2": "french",
+			"3": "russian"
 		}
 	},
 
@@ -35,8 +69,8 @@
 		"port": 8000,
 		"ssl": {
 			"use": false,
-			"certfile": "(!CWD!)/ssl/server.cert",
-			"keyfile": "(!CWD!)/ssl/server.key"
+			"certfile": "(!cwd!)/ssl/server.cert",
+			"keyfile": "(!cwd!)/ssl/server.key"
 		}
 	}
 }

@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
-"""CloudyBoss speech to text audio processor
+"""RemSphinx speech to text audio processor
 
 This module is desgigned to do the entire audio processing for the application.
 Once a client is within a session, this program will fork it off to another sub-applicaiton; to
 hopefully escape the GIL for true multithreading.
 
+Developed By: David Smerkous
 """
 
-from pocketsphinx.pocketsphinx import Decoder
-from subprocess import Popen, PIPE
 from logger import logger
 from configs import LanguageModel, Configs
+from text_processor import TextProcessor
+from pocketsphinx.pocketsphinx import Decoder
 from pyaudio import PyAudio, paInt16
 from base64 import b64decode
 from multiprocessing import Process, Pipe, Lock, Event, current_process
@@ -37,6 +38,7 @@ PyAudio: py_audio - The PyAudio parent object (This should only be used when deb
 PyAudioStream: audio_stream - The PyAudio sub-stream audio object
 """
 
+
 class STT(object):
     """Speech To Text processing class
         
@@ -52,16 +54,15 @@ class STT(object):
         self._subprocess_callback = None
         self._loaded_model = False
         self._p_out, self._p_in = Pipe() # Create a new multiprocessing Pipe pair
-        self._lock = Lock() # Create a mutex lock between the parent process and the subprocess
         self._shutdown_event = Event() # Create an event to handle the STT shutdown
-        self._process = Process(target=self.__worker, args=((self._p_out, self._p_in), log, self._lock)) # Create the subprocess fork
+        self._process = Process(target=self.__worker, args=((self._p_out, self._p_in), log)) # Create the subprocess fork
         self._process.start() # Start the subprocess fork
 
         self._subprocess_t = Thread(target=self.__handle_subprocess)
         self._subprocess_t.setDaemon(True)
         self._subprocess_t.start()
 
-    def __worker(self, pipe, l_log, lock):
+    def __worker(self, pipe, l_log):
         """The core of the STT program, this is the multiprocessed part
 
         Note:
@@ -73,9 +74,12 @@ class STT(object):
         l_log.debug("STT worker started")
 
         audio_processor = AudioProcessor() # Create a new audio processing object
+        text_processor = TextProcessor() # Remember that we can't load the text processor nltk model until the nltk model is set from the client language
         config = Decoder.default_config() # Create a new pocketsphinx decoder with the default configuration, which is English
         decoder = None
-        shutdown_flags = { "shutdown": False }
+        nltk_model = None
+        mutex_flags = { "keyphrases": { "use": False } }
+        shutdown_flags = { "shutdown": False, "decoder": None }
 
         def send_json(pipe, to_send):
             """Internal worker method to send a json through the parent socket
@@ -102,7 +106,7 @@ class STT(object):
             """
             send_json(pipe, {"error": error}) 
 
-        def load_model(pipe, config, language_model):
+        def load_models(pipe, config, models):
             """Internal worker method to load the language model
 
             Note:
@@ -111,13 +115,17 @@ class STT(object):
             
             Arguments:
                 pipe (:obj: socket): The response pipe to send to the parent process
-                language_model (LanguageModel): The language model developed by the parent process
+                models (dict): The language and nltk models developed by the parent process
            
             Returns: (Decoder)
-                The STT decoder object
+                The STT decoder object and the nltk model
+
             """
             
-            if not language_model.is_valid_model():
+            language_model = models["language_model"]
+            nltk_model = models["nltk_model"]
+
+            if False in [language_model.is_valid_model(), nltk_model.is_valid_model()]:
                 l_log.error("The language model %s is invalid!" % str(language_model.name))
                 send_error(pipe, "Failed loading language model!")
                 return
@@ -130,9 +138,48 @@ class STT(object):
 
             send_json(pipe, {"success": True}) # Send a success message to the client
 
-            l_log.info("Set the language model to %s" % str(language_model.name))
+            l_log.debug("Set the language model to %s" % str(language_model.name))
             
-            return decoder # Return the new decoder
+            return decoder, nltk_model # Return the new decoder and nltk model
+
+        def process_text(pipe, text, is_final, args):
+            """Internal worker method to process the Speech To Text phrase
+
+            Arguments:
+                pipe (:obj: socket): The response pipe to send to the parent process
+                text (str): The spoken text to further process
+                is_final (boo): If the text being processed is the final text else it's a partial result
+                args (dict): Any other flags specifically required for a final or partial speech result
+            """
+
+            generate_keyphrases = mutex_flags["keyphrases"]["use"]
+            keyphrases = []
+
+            if generate_keyphrases:
+                text_processor.generate_keyphrases(text) # Generate keyphrases from the given text
+                keyphrases_list = text_processor.get_keyphrases()
+
+                for keyphrase in keyphrases_list:
+                    to_append_keyphrase = {
+                        "score": keyphrase[0],
+                        "keyphrase": keyphrase[1]
+                    }
+                    keyphrases.append(to_append_keyphrase)
+            else:
+                keyphrases = text # Don't do any processing and just pass the text into the keyphrases
+
+            # Generate the json to be sent back to the client
+            hypothesis_results = args
+            hypothesis_results["keyphrases"] = generate_keyphrases
+            if is_final:
+                hypothesis_results["hypothesis"] = keyphrases
+            else:
+                hypothesis_results["partial_hypothesis"] = keyphrases
+
+            print(hypothesis_results)
+
+            # Send the results back to the client
+            send_json(pipe, hypothesis_results)
 
         def start_audio(pipe, decoder, args):
             """Internal worker method to start the audio processing chunk sequence
@@ -144,6 +191,7 @@ class STT(object):
                 pipe (:obj: socket): The response pipe to send to the parent process
                 decoder (Decoder): The pocketsphinx decoder to control the STT engine
                 args (dict): All of the available arguments passed by the parent process
+
             """
 
             if decoder is None:
@@ -152,13 +200,11 @@ class STT(object):
                 send_json(pipe, {"decoder": False})
                 return
            
-            l_log.info("Starting the audio processing...")
+            l_log.debug("Starting the audio processing...")
 
             decoder.start_utt() # Start the pocketsphinx listener
-            
-            hypothesis = decoder.seg() # Get pocketshpinx's hypothesis
-            print("GUESS: %s" % str([seg.word for seg in hypothesis]))
 
+            # Tell the client that the decoder has successfully been loaded
             send_json(pipe, {"decoder": True})
 
         def process_audio(pipe, decoder, args):
@@ -171,18 +217,19 @@ class STT(object):
                 pipe (:obj: socket): The response pipe to send to the parent process
                 decoder (Decoder): The pocketsphinx decoder to control the STT engine
                 args (dict): All of the available arguments passed by the parent process
+
             """
             if decoder is None:
                 l_log.error("Language model is not loaded")
                 send_error(pipe, "Language model not loaded!")
                 return
 
-            l_log.info("Processing audio chunk!")
+            l_log.debug("Processing audio chunk!")
 
             audio_chunk = args["audio"] # Retrieve the audio data
             processed_wav = audio_processor.process_chunk(audio_chunk) # Process the base64 wrapped audio data
            
-            l_log.info("Recognizing speech...")
+            l_log.debug("Recognizing speech...")
 
             decoder.process_raw(processed_wav, False, False) # Process the audio chunk through the STT engine
 
@@ -190,18 +237,17 @@ class STT(object):
 
             # Send back the results of the decoding
             if hypothesis is None:
-                l_log.info("Silence detected")
+                l_log.debug("Silence detected")
                 send_json(pipe, {"partial_silence": True, "partial_hypothesis": None})
             else:
                 hypothesis_results = {
                     "partial_silence": False if len(hypothesis.hypstr) > 0 else True,
-                    "partial_hypothesis": hypothesis.hypstr
                 }
 
-                l_log.info("Partial speech detected: %s" % str(hypothesis_results))
-                send_json(pipe, hypothesis_results)
-            
-            l_log.info("Done decoding speech from audio chunk!")
+                l_log.debug("Partial speech detected: %s" % str(hypothesis.hypstr))
+                process_text(pipe, hypothesis.hypstr, False, hypothesis_results)
+
+            l_log.debug("Done decoding speech from audio chunk!")
 
         def stop_audio(pipe, decoder, args):
             """Internal worker method to stop the audio processing chunk sequence
@@ -213,6 +259,7 @@ class STT(object):
                 pipe (:obj: socket): The response pipe to send to the parent process
                 decoder (Decoder): The pocketsphinx decoder to control the STT engine
                 args (dict): All of the available arguments passed by the parent process
+
             """
 
             if decoder is None:
@@ -221,43 +268,46 @@ class STT(object):
                 send_json({"decoder": False})
                 return
 
-            l_log.info("Stopping the audio processing...")
+            l_log.debug("Stopping the audio processing...")
 
             decoder.end_utt() # Stop the pocketsphinx listener
 
-            l_log.info("Done recognizing speech!")
+            l_log.debug("Done recognizing speech!")
 
             hypothesis = decoder.hyp() # Get pocketshpinx's hypothesis
             logmath = decoder.get_logmath()
 
             # Send back the results of the decoding
             if hypothesis is None:
-                l_log.info("Silence detected")
+                l_log.debug("Silence detected")
                 send_json(pipe, {"silence": True, "hypothesis": None})
             else:
                 hypothesis_results = {
                     "silence": False if len(hypothesis.hypstr) > 0 else True,
-                    "hypothesis": hypothesis.hypstr,
                     "score": hypothesis.best_score,
                     "confidence": logmath.exp(hypothesis.prob)
                 }
 
-                l_log.info("Speech detected: %s" % str(hypothesis_results))
-                send_json(pipe, hypothesis_results)
+                l_log.debug("Speech detected: %s" % str(hypothesis.hypstr))
+                process_text(pipe, hypothesis.hypstr, True, hypothesis_results)
 
-        def shutdown_thread(self, decoder, l_log):
+        def shutdown_thread(self, l_log):
             """Worker method to handle the checking of a shutdown call
 
             Note:
                 To reduce overhead, this thread will only be called every 100 milliseconds
+
             """
             while not shutdown_flags["shutdown"]:
                 try:
                     if self._shutdown_event.is_set():
-                        l_log.info("Shutting down worker thread!")
+                        l_log.debug("Shutting down worker thread!")
                         shutdown_flags["shutdown"] = True # Exit the main loop
-                        if decoder is not None:
-                            decoder.end_utt()
+                        if shutdown_flags["decoder"] is not None:
+                            try:
+                                shutdown_flags["decoder"].end_utt()
+                            except Exception as err:
+                                l_log.debug("STT decoder object returned a non-zero status")
                         else:
                             l_log.warning("The decoder object is already None!")
 
@@ -266,7 +316,7 @@ class STT(object):
                 except Exception as err:
                     l_log.error("Failed shutting down worker thread! (err: %s)" % str(err))
 
-        shutdown_t = Thread(target=shutdown_thread, args=(self, decoder, l_log,))
+        shutdown_t = Thread(target=shutdown_thread, args=(self, l_log,))
         shutdown_t.setDaemon(True)
         shutdown_t.start()
 
@@ -275,14 +325,18 @@ class STT(object):
             try:
                 try:
                     command = self.__get_buffered(p_out) # Wait for a command from the parent process
-                    if "set_model" in command["exec"]: # Check to see if our command is to 
-                        decoder = load_model(p_out, config, command["args"])
+                    if "set_models" in command["exec"]: # Check to see if our command is to 
+                        decoder, nltk_model = load_models(p_out, config, command["args"])
+                        text_processor.set_nltk_model(nltk_model) # Set the text processor nltk model
+                        shutdown_flags["decoder"] = decoder
                     elif "start_audio" in command["exec"]:
                         start_audio(p_out, decoder, command["args"])
                     elif "process_audio" in command["exec"]:
                         process_audio(p_out, decoder, command["args"])
                     elif "stop_audio" in command["exec"]:
                         stop_audio(p_out, decoder, command["args"])
+                    elif "set_keyphrases" in command["exec"]:
+                        mutex_flags["keyphrases"] = command["args"]
                     else:
                         l_log.error("Invalid command %s" % str(command))
                         send_error(socket, "Invalid command!")
@@ -399,7 +453,7 @@ class STT(object):
         """
         self._subprocess_callback = callback
 
-    def set_language_model(self, language_model):
+    def set_models(self, language_model, nltk_model):
         """Method to set the STT object's language model
 
         Note:
@@ -407,8 +461,9 @@ class STT(object):
         
         Arguments:
             language_model (LanguageModel): The loaded language model to be processed for the STT engine
+            nltk_model (NLTKModel): The loaded nltk model to be processed for the text processing object
         """
-        self.__send_to_worker("set_model", language_model)
+        self.__send_to_worker("set_models", {"language_model": language_model, "nltk_model": nltk_model})
 
     def process_audio_chunk(self, audio_chunk):
         """Method to process an audio chunk
@@ -438,6 +493,14 @@ class STT(object):
 
         """
         self.__send_to_worker("stop_audio", {})
+
+    def set_keyphrases(self, keyphrases):
+        """Method to set the keyphrases flag
+        
+        Arguments:
+            keyphrases (dict): The keyphraeses flags
+        """
+        self.__send_to_worker("set_keyphrases", keyphrases)
 
     def shutdown(self):
         """Method to shutdown and cleanup the STT engine object

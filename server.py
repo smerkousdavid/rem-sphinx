@@ -102,11 +102,15 @@ class ClientHandler(WebSocketHandler):
         """
         log.debug("Client sent language model! %s" % str(model_data))
 
-        # Load new LanguageModel object based on data from the configuration file
-        self._model = configs.get_stt_data(model_data["model"])
-        
-        # Set the STT language model object
-        self._stt.set_language_model(self._model)
+        # Load new LanguageModel and NTLKModel objects based on data from the configuration file
+        print(model_data)
+        load_model = model_data["model"]
+        accent_model = model_data["accent"]
+        self._language_model = configs.get_stt_data(load_model, accent_model)
+        self._nltk_model = configs.get_nltk_data(load_model)
+
+        # Set the STT language and nltk model objects
+        self._stt.set_models(self._language_model, self._nltk_model)
 
         # Update the local websocket state to allow the start_audio call
         self._state = 10
@@ -155,13 +159,30 @@ class ClientHandler(WebSocketHandler):
         # Change the websocket state to that of waiting for the start_audio command
         self._state = 10
 
+    def __handle_keyphrases(self, keyphrases):
+        """Private method to handle the setting of the keyphrase flag
+
+        Note:
+            This will tell the STT engine to do some text processing and extract keyphrases
+            from the given speech
+
+        """
+        log.debug("Setting the keyphrase flag to %s" % str(keyphrases))
+
+        # Tell the STT engine to process the spoken text into keyphrases
+        set_keyphrases = {
+            "use": keyphrases["set_keyphrases"]
+        }
+        self._stt.set_keyphrases(set_keyphrases)
+
     def open(self):
         """The WebSocket wrapped constructor per individual client
 
         Note:
             A new object is created everytime a client is connected to the server
         """
-        self._model = None # Set the currently loaded model to None
+        self._language_model = None # Set the current language model to None
+        self._nltk_model = None # Set the current nltk model to None
         self._state = 0 # Set the initial websocket state to not initialized
         self._stt = STT() # Create the new Speech To Text object
         self._stt.set_subprocess_callback(self.__handle_subprocess) # Attach the subprocess callback method to the local __handle_subprocess method
@@ -199,6 +220,8 @@ class ClientHandler(WebSocketHandler):
             self.__handle_stop_audio()
         elif "end_speech" in j_obj and self._state != 20: # Send an error indicating that an unnecessary call has been made
             self.__send_error("Unecessary end speech has been called!")
+        elif "set_keyphrases" in j_obj:
+            self.__handle_keyphrases(j_obj) # Set the keyphrases flag to either True or False
 
     def on_close(self):
         """The WebSocket superclass on_close method
@@ -210,17 +233,39 @@ class ClientHandler(WebSocketHandler):
         self._stt.shutdown() # Tell the STT engine to shutdown
 
     def allow_draft76(self):
+        """Websocket superclass method to allow various websocket drafts and methods
+
+        Note:
+            The reason for this method being here is not completed known
+        """
         return True
 
     def check_origin(self, origin):
+        """Websocket superclass method to allow any client from any origin to access this API endpoint
+
+        Arguments:
+            origin (str): The address/origin of the client
+
+        Note:
+            True means that this address is accepted
+        """
         return True
-log.debug("Initializing websocket server")
 
 class IndexPageHandler(RequestHandler):
+    """Class to handle the return of index.html
+
+    Note:
+        The index.html is also considered the root, and home, file
+    """
     def get(self):
         self.render("index.html")
 
 class AudioServer(Application):
+    """Application wrapper class for the handling of API endpoints
+
+    Note:
+        This class only handles what endpoints and settings are available to the clients
+    """
     def __init__(self):
         handlers = [
             (r'/', IndexPageHandler),
@@ -243,11 +288,19 @@ if __name__ == "__main__":
 
     # Create the AudioServer wrapped tornado application
     application = AudioServer()
+
+    # Check wether if we're using ssl and load the appropriate settings
     if ssl_configs["use"]:
         server = HTTPServer(application, ssl_options=ssl_configs)
     else:
         server = HTTPServer(application)
+
+    # Get the current server port from the configuration files
     server_port = configs.get_server()["port"]
+
+    # Set the tornado server's endpoint
     server.listen(server_port)
     log.info("Listening on port %d" % server_port)
+    
+    # Start the tornado server loop
     IOLoop.instance().start()

@@ -38,6 +38,7 @@ class LanguageModel(object):
        _model_dict (str): The absolute path to the language N-Gram dictionary (The table lookup for the phonetics to words)
 
     """
+
     def __init__(self, m_name = None, m_hmm = None, m_lm = None, m_dict = None):
         """LanguageModel constructor
 
@@ -160,6 +161,86 @@ class LanguageModel(object):
             raise SystemError("dict doesn't exist!")
         self._model_dict = ngrams
 
+
+class NLTKModel(object):
+    """NLTK model to handle NLTK language specific enums
+
+    Attributes:
+       _model_name (str): The generic name of the language model name (ex: English)
+       _model_stop_words (str): The generic stop words required for the language model 
+    """
+
+    def __init__(self, m_name = None, m_stop_words = None):
+        """NLTKModel constructor
+
+        Args:
+            m_name (str): The generic name of the language model name (ex: English)
+            m_stop_words (str): The generic stop words required for the language model
+        """
+
+        # Check for nulls before passing through the property functions
+        if m_name is None:
+            self._model_name = None
+        else:
+            self.name = m_name
+        
+        if m_stop_words is None:
+            self._stop_words = None
+        else:
+            self.stop_words = m_stop_words
+    
+    def is_valid_model(self):
+        """Private method to check and see if the model is valid
+
+        Note:
+            This will not fix the model if it's currently broken!
+
+        Returns: (bool)
+            True if the model is valid, else, False
+        """
+        
+        # If any of the model paths are none, then return a False
+        if None in [self.stop_words]:
+            return False
+        return True
+
+    @property
+    def name(self):
+        """str: model name property
+            
+        Get the current language model name
+        """
+        return self._model_name
+
+    @name.setter
+    def name(self, m_name):
+        # Check to see if hmm is a string
+        if not isinstance(m_name, basestring):
+            raise TypeError("name must be a string!")
+
+        if len(m_name) == 0:
+            raise ("The name cannot be blank")
+        self._model_name = m_name
+
+    @property
+    def stop_words(self):
+        """str: stop_words language property
+            
+        Get the current stop_words nltk language model name
+        """
+        return self._stop_words
+
+    @stop_words.setter
+    def stop_words(self, m_stop_words):
+        # Check to see if stop_words is a string
+        if not isinstance(m_stop_words, basestring):
+            raise TypeError("stop_words must be a string!")
+
+        if len(m_stop_words) == 0:
+            raise ("stop_words cannot be blank")
+        self._stop_words = m_stop_words
+
+
 class Configs(object):
     """Configs handler and dynamic file change detection
 
@@ -244,10 +325,25 @@ class Configs(object):
             a_l = Configs.get_available_languages()
             if a_l is None:
                 return None
-            return a_l[str(l_id)]
+
+            for l in a_l:
+                if l["id"] == l_id:
+                    return l["name"]
         except Exception as err:
             log.error("Failed getting language name by id! (id: %d) (err: %s)" % (l_id, str(err)))
             return None
+
+    @staticmethod
+    def get_language_accents_by_id(l_id):
+        """Method to return the language model name based on the id
+
+        Arguments:
+            l_id (int): The language model id to get the language model name
+
+        Returns (str):
+            The language model name
+        """
+        pass
 
     @staticmethod
     def get_server():
@@ -283,6 +379,34 @@ class Configs(object):
             log.error("Failed getting server configuration dictionary! (err: %s)" % str(err))
             return None
 
+    @staticmethod
+    def get_nltk():
+        global CONFIGS
+        """Public methdo to get the current nltk configurations
+
+        Returns: (dict)
+            The nltk configuration object
+        """
+        return CONFIGS["nltk"]
+
+    def get_nltk_data(self, l_id):
+        """Method to return all text processing configuration data
+
+        Arguments:
+            l_id (int): The language model id to get the text processing data from
+
+        Returns (NLTKModel):
+            The populated NLTKModel
+        """
+        try:
+            n_id = str(l_id) # Turn the id into a str because the json only accepts str keys
+            name = Configs.get_language_name_by_id(l_id)
+            nltk = Configs.get_nltk() # Get the nltk sub object
+            stop_words = nltk["stopwords"][n_id]
+            return NLTKModel(name, stop_words) # Create the new nltk model object
+        except Exception as err:
+            log.error("Failed loading nltk model! (id: %s) (err: %s)" % (str(l_id), str(err)))
+            return None
 
     @staticmethod
     def get_stt():
@@ -294,27 +418,28 @@ class Configs(object):
         """
         return CONFIGS["stt"]
 
-    def get_stt_data(self, l_id):
+    def get_stt_data(self, l_id, accent):
         """Method to return all speech to text configuration data
 
         Arguments:
             l_id (int): The language model id to get speech to text data from
         
-        Returns (LanguageModel)
+        Returns (LanguageModel):
+            The populated LanguageModel
         """
 
         try:
             n_id = str(l_id) # Turn the id into a str because the json only accepts str keys
             name = Configs.get_language_name_by_id(l_id)
-            stt = Configs.get_stt() # Get the speech to text sub objects
+            stt = Configs.get_stt() # Get the speech to text sub object
             model_data = self.parse_config_path(stt["model_dir"]) # Parse the model directory from the configuration file
             # Get the current language's model data
-            m_hmm = join(model_data, stt["hmm"][n_id])
-            m_lm = join(model_data, stt["lm"][n_id])
-            m_dict = join(model_data, stt["dict"][n_id])
+            m_hmm = join(model_data, self.get_accent_path(stt["hmm"][n_id], accent))
+            m_lm = join(model_data, self.get_accent_path(stt["lm"][n_id], accent))
+            m_dict = join(model_data, self.get_accent_path(stt["dict"][n_id], accent))
             return LanguageModel(name, m_hmm, m_lm, m_dict) # Create the new language model object
         except Exception as err:
-            log.error("Failed loading language model! (id: %d) (err: %s)" % (l_id, str(err)))
+            log.error("Failed loading language model! (id: %s) (err: %s)" % (str(l_id), str(err)))
             return None
 
     @staticmethod
@@ -378,6 +503,28 @@ class Configs(object):
 
         return join(self.get_cwd(), relative_path)
 
+    def get_accent_path(self, path_parse, accent):
+        """Method to replace common accent path symbols in the configuration files
+
+        Note:
+            If there's a path separator at the end of the path, then this method will remove it
+
+        Arguments:
+            path_parse (str): The configuration symbolic filled path to be parsed
+
+        Returns: (str)
+            The parsed and non-symbolic and non-variabled accent path data
+        """
+
+        try:
+            if accent[-1] == sep:
+                accent = accent[:len(accent) - 2]
+            path_parse = re.sub(r'\(!accent!\)', accent, path_parse)
+            return path_parse
+        except Exception as err:
+            log.error("Failed parsing accent config path! (path: %s) (err: %s)" % (path_parse, str(err)))
+            return None
+
     def parse_config_path(self, path_parse):
         """Method to replace common path symbols in the configuration files
 
@@ -395,7 +542,7 @@ class Configs(object):
             cwd = self.get_cwd()
             if cwd[-1] == sep:
                 cwd = cwd[:len(cwd) - 2]
-            path_parse = re.sub(r'\(!CWD!\)', cwd, path_parse)
+            path_parse = re.sub(r'\(!cwd!\)', cwd, path_parse)
             return path_parse
         except Exception as err:
             log.error("Failed parsing config path! (path: %s) (err: %s)" % (path_parse, str(err)))
